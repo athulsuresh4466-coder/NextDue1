@@ -2,7 +2,7 @@ import React from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import CheckToggleCircle from './CheckToggleCircle';
 
-const DueRow = ({ due, onPress, onToggle }) => {
+const DueRow = React.memo(({ due, onPress, onToggle }) => {
   const dueDate = due.dueDate instanceof Date ? due.dueDate : new Date(due.dueDate);
   const day = dueDate.getDate();
   const month = dueDate.toLocaleString('default', { month: 'short' }).toUpperCase();
@@ -56,7 +56,7 @@ const DueRow = ({ due, onPress, onToggle }) => {
       />
     </TouchableOpacity>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

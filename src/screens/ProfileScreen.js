@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,36 @@ import {
   Alert,
   Image,
   ScrollView,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../hooks/useAuth';
 
 const ProfileScreen = ({ navigation }) => {
   const { user, logout } = useAuth();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const doLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+      Alert.alert('Error', err.message || 'Failed to logout');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   const handleLogout = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to logout?')) {
+        doLogout();
+      }
+      return;
+    }
+
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
@@ -23,13 +45,7 @@ const ProfileScreen = ({ navigation }) => {
         {
           text: 'Logout',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await logout();
-            } catch (err) {
-              Alert.alert('Error', 'Failed to logout');
-            }
-          },
+          onPress: doLogout,
         },
       ]
     );
@@ -100,9 +116,19 @@ const ProfileScreen = ({ navigation }) => {
       </View>
 
       {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={20} color="#EF4444" />
-        <Text style={styles.logoutText}>Logout</Text>
+      <TouchableOpacity
+        style={[styles.logoutButton, loggingOut && styles.logoutButtonDisabled]}
+        onPress={handleLogout}
+        disabled={loggingOut}
+      >
+        {loggingOut ? (
+          <ActivityIndicator color="#EF4444" />
+        ) : (
+          <>
+            <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+            <Text style={styles.logoutText}>Logout</Text>
+          </>
+        )}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -202,6 +228,9 @@ const styles = StyleSheet.create({
     borderColor: '#EF4444',
     paddingVertical: 14,
     marginTop: 8,
+  },
+  logoutButtonDisabled: {
+    opacity: 0.65,
   },
   logoutText: {
     fontSize: 16,

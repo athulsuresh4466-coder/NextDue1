@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -90,6 +91,10 @@ const AddEditDueScreen = ({ route, navigation }) => {
   const [showRecurrencePicker, setShowRecurrencePicker] = useState(false);
   const [showPriorityPicker, setShowPriorityPicker] = useState(false);
   const [errors, setErrors] = useState({});
+  const calendarFade = useRef(new Animated.Value(1)).current;
+  const calendarSlide = useRef(new Animated.Value(0)).current;
+
+  const calendarDays = useMemo(() => getCalendarDays(calendarMonth), [calendarMonth]);
 
   useEffect(() => {
     if (isEditing) {
@@ -170,22 +175,24 @@ const AddEditDueScreen = ({ route, navigation }) => {
         // Cancel old reminders first
         const oldDue = await getDueById(dueId);
         if (oldDue.notificationIds?.length > 0) {
-          await cancelReminders({ notificationIds: oldDue.notificationIds });
+          await cancelReminders(oldDue, { persist: false });
         }
 
-        await updateDue(dueId, dueData);
+        const updatedDue = await updateDue(dueId, dueData);
 
         // Schedule new reminders
         if (reminders.length > 0) {
-          await scheduleReminders({ ...dueData, id: dueId });
+          await scheduleReminders({ ...updatedDue, ...dueData, id: dueId, notificationIds: [] });
         }
+        Alert.alert('Success', 'Due updated successfully.');
       } else {
         const newDue = await addDue(dueData);
 
         // Schedule reminders
         if (reminders.length > 0) {
-          await scheduleReminders({ ...dueData, id: newDue.id });
+          await scheduleReminders({ ...newDue, ...dueData, id: newDue.id });
         }
+        Alert.alert('Success', 'Due created successfully.');
       }
 
       navigation.goBack();
@@ -212,10 +219,33 @@ const AddEditDueScreen = ({ route, navigation }) => {
     setErrors((currentErrors) => ({ ...currentErrors, dueDate: undefined }));
   };
 
+  const animateCalendarChange = (nextMonth, direction = 0) => {
+    calendarSlide.setValue(direction * 10);
+    calendarFade.setValue(0.35);
+    setCalendarMonth(nextMonth);
+    Animated.parallel([
+      Animated.timing(calendarFade, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(calendarSlide, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const openCalendarAtCurrentMonth = () => {
+    setShowDatePicker(true);
+    const today = new Date();
+    animateCalendarChange(new Date(today.getFullYear(), today.getMonth(), 1), 0);
+  };
+
   const changeCalendarMonth = (offset) => {
-    setCalendarMonth((currentMonth) => (
-      new Date(currentMonth.getFullYear(), currentMonth.getMonth() + offset, 1)
-    ));
+    const nextMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + offset, 1);
+    animateCalendarChange(nextMonth, offset > 0 ? 1 : -1);
   };
 
   const handleReceiptPick = async () => {
@@ -314,7 +344,7 @@ const AddEditDueScreen = ({ route, navigation }) => {
         <Text style={styles.label}>DUE DATE</Text>
         <TouchableOpacity
           style={styles.dateSelector}
-          onPress={() => setShowDatePicker(true)}
+          onPress={openCalendarAtCurrentMonth}
         >
           <Ionicons name="calendar-outline" size={20} color="#9CA3AF" />
           <Text style={styles.dateText}>{formatDate(dueDate)}</Text>
@@ -347,8 +377,13 @@ const AddEditDueScreen = ({ route, navigation }) => {
               ))}
             </View>
 
-            <View style={styles.calendarGrid}>
-              {getCalendarDays(calendarMonth).map((date, index) => {
+            <Animated.View
+              style={[
+                styles.calendarGrid,
+                { opacity: calendarFade, transform: [{ translateX: calendarSlide }] },
+              ]}
+            >
+              {calendarDays.map((date, index) => {
                 const selected = date && isSameDay(date, dueDate);
                 const today = date && isSameDay(date, new Date());
 
@@ -378,7 +413,7 @@ const AddEditDueScreen = ({ route, navigation }) => {
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </Animated.View>
 
             <Text style={styles.selectedDateHint}>Selected: {formatDate(dueDate)}</Text>
             {errors.dueDate && <Text style={styles.errorText}>{errors.dueDate}</Text>}
@@ -545,7 +580,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f1621',
   },
   contentContainer: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 18,
   },
   loadingContainer: {
     flex: 1,
@@ -554,13 +591,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fieldContainer: {
-    marginBottom: 16,
+    marginBottom: 11,
   },
   label: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
     color: '#9CA3AF',
-    marginBottom: 6,
+    marginBottom: 5,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -569,9 +606,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#2D3A4A',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
     color: '#FFFFFF',
   },
   inputError: {
@@ -584,7 +621,7 @@ const styles = StyleSheet.create({
   },
   textArea: {
     textAlignVertical: 'top',
-    minHeight: 80,
+    minHeight: 56,
   },
   amountContainer: {
     flexDirection: 'row',
@@ -606,11 +643,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#2D3A4A',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   dateText: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#FFFFFF',
     marginLeft: 10,
   },
@@ -619,39 +656,40 @@ const styles = StyleSheet.create({
   },
   calendarContainer: {
     backgroundColor: '#1A2332',
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#2D3A4A',
-    marginTop: 10,
-    padding: 12,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   calendarHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 6,
   },
   calendarNavButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#243044',
     alignItems: 'center',
     justifyContent: 'center',
   },
   calendarMonthText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
   weekDaysRow: {
     flexDirection: 'row',
-    marginBottom: 8,
+    marginBottom: 2,
   },
   weekDayText: {
     width: `${100 / 7}%`,
     color: '#9CA3AF',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -661,11 +699,11 @@ const styles = StyleSheet.create({
   },
   calendarDay: {
     width: `${100 / 7}%`,
-    aspectRatio: 1,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
-    marginVertical: 2,
+    borderRadius: 8,
+    marginVertical: 0,
   },
   calendarDayBlank: {
     opacity: 0,
@@ -679,7 +717,7 @@ const styles = StyleSheet.create({
   },
   calendarDayText: {
     color: '#D1D5DB',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   calendarDayTodayText: {
@@ -692,7 +730,7 @@ const styles = StyleSheet.create({
   selectedDateHint: {
     color: '#9CA3AF',
     fontSize: 12,
-    marginTop: 10,
+    marginTop: 6,
     textAlign: 'center',
   },
   selector: {
@@ -703,8 +741,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#2D3A4A',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   selectorText: {
     fontSize: 15,
@@ -719,8 +757,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   inlineOption: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#2D3A4A',
   },
@@ -754,7 +792,7 @@ const styles = StyleSheet.create({
   saveButton: {
     backgroundColor: '#4CAF50',
     borderRadius: 12,
-    paddingVertical: 16,
+    paddingVertical: 13,
     alignItems: 'center',
     marginTop: 8,
   },

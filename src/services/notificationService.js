@@ -1,10 +1,10 @@
 import { Platform } from 'react-native';
-import { updateDoc, doc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { updateDueNotificationIds } from './firestoreService';
 
 const isWeb = Platform.OS === 'web';
+const CHANNEL_ID = 'dues-reminders';
+const DEFAULT_REMINDER_HOUR = 9;
 
-// Only import expo-notifications on native platforms
 let Notifications = null;
 let Device = null;
 
@@ -12,149 +12,185 @@ if (!isWeb) {
   Notifications = require('expo-notifications');
   Device = require('expo-device');
 
-  // Configure notification handler
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
       shouldPlaySound: true,
-      shouldSetBadge: true,
+      shouldSetBadge: false,
     }),
   });
 }
 
-// Request notification permissions
-export const requestNotificationPermissions = async () => {
-  if (isWeb || !Device) {
-    console.log('Notifications not supported on web');
-    return false;
-  }
-
-  if (!Device.isDevice) {
-    console.log('Notifications require a physical device');
-    return false;
-  }
-
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') {
-    console.log('Notification permission not granted');
-    return false;
-  }
-
-  // Android-specific channel setup
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('dues-reminders', {
-      name: 'Due Reminders',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FF231F7C',
-    });
-  }
-
-  return true;
+const formatAmount = (amount) => {
+  if (!amount && amount !== 0) return '0';
+  return Number(amount).toLocaleString('en-IN');
 };
 
-// Schedule reminders for a due
-export const scheduleReminders = async (due) => {
-  if (isWeb || !Notifications) {
-    console.log('Notifications not available on web');
+const normalizeDate = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const uniqueReminderDays = (reminders = []) => (
+  [...new Set(reminders.map(Number).filter((value) => Number.isFinite(value) && value >= 0))]
+    .sort((a, b) => b - a)
+);
+
+const buildTriggerDate = (dueDate, daysBefore) => {
+  const triggerDate = new Date(dueDate);
+  triggerDate.setDate(triggerDate.getDate() - daysBefore);
+  triggerDate.setHours(DEFAULT_REMINDER_HOUR, 0, 0, 0);
+  return triggerDate;
+};
+
+export const requestNotificationPermissions = async () => {
+  if (isWeb || !Notifications || !Device) return false;
+
+  try {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+        name: 'Due Reminders',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#4CAF50',
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+    }
+
+    if (!Device.isDevice) {
+      console.log('Notifications are limited on simulators/emulators. Test on a physical device.');
+    }
+
+    const existing = await Notifications.getPermissionsAsync();
+    let finalStatus = existing.status;
+
+    if (finalStatus !== 'granted') {
+      const requested = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+        },
+      });
+      finalStatus = requested.status;
+    }
+
+    return finalStatus === 'granted';
+  } catch (error) {
+    console.error('Notification permission error:', error);
+    return false;
+  }
+};
+
+export const cancelReminders = async (due, options = {}) => {
+  if (isWeb || !Notifications) return [];
+
+  const ids = [...new Set(due?.notificationIds || [])];
+  for (const id of ids) {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(id);
+    } catch (error) {
+      console.log('Error cancelling notification:', error);
+    }
+  }
+
+  if (options.persist !== false && due?.id) {
+    await updateDueNotificationIds(due.id, []);
+  }
+
+  return ids;
+};
+
+export const scheduleReminders = async (due, options = {}) => {
+  if (isWeb || !Notifications) return [];
+
+  const dueDate = normalizeDate(due?.dueDate);
+  const reminders = uniqueReminderDays(due?.reminders);
+  if (!due?.id || !dueDate || reminders.length === 0 || due.isCompleted) {
+    if (options.persist !== false && due?.id) await updateDueNotificationIds(due.id, []);
     return [];
   }
 
-  if (!due.reminders || due.reminders.length === 0) return [];
+  const hasPermission = await requestNotificationPermissions();
+  if (!hasPermission) throw new Error('Notification permission was not granted.');
+
+  if (due.notificationIds?.length) {
+    await cancelReminders(due, { persist: false });
+  }
 
   const notificationIds = [];
-  const dueDate = due.dueDate instanceof Date ? due.dueDate : new Date(due.dueDate);
+  const now = new Date();
 
-  for (const daysBefore of due.reminders) {
-    const triggerDate = new Date(dueDate);
-    triggerDate.setDate(triggerDate.getDate() - daysBefore);
-    triggerDate.setHours(9, 0, 0, 0); // 9:00 AM
+  for (const daysBefore of reminders) {
+    const triggerDate = buildTriggerDate(dueDate, daysBefore);
+    if (triggerDate <= now) continue;
 
-    // Don't schedule if the date is in the past
-    if (triggerDate <= new Date()) continue;
+    const dueLabel = daysBefore === 0
+      ? 'today'
+      : `in ${daysBefore} day${daysBefore === 1 ? '' : 's'}`;
 
     const id = await Notifications.scheduleNotificationAsync({
       content: {
-        title: '📅 Due Reminder',
-        body: `"${due.title}" is due in ${daysBefore} day${daysBefore > 1 ? 's' : ''} — ₹${formatAmount(due.amount)}`,
+        title: '📅 NextDue Reminder',
+        body: `"${due.title}" is due ${dueLabel} — ₹${formatAmount(due.amount)}`,
         data: { dueId: due.id, screen: 'Detail' },
         sound: true,
-        priority: Notifications.AndroidImportance.HIGH,
+        priority: Notifications.AndroidNotificationPriority?.HIGH,
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: triggerDate,
+        channelId: CHANNEL_ID,
       },
     });
 
     notificationIds.push(id);
   }
 
-  // Store notification IDs in Firestore
-  if (due.id) {
-    const dueRef = doc(db, 'dues', due.id);
-    await updateDoc(dueRef, { notificationIds });
+  if (options.persist !== false) {
+    await updateDueNotificationIds(due.id, notificationIds);
   }
 
   return notificationIds;
 };
 
-// Cancel all reminders for a due
-export const cancelReminders = async (due) => {
-  if (isWeb || !Notifications) return;
-
-  if (!due.notificationIds || due.notificationIds.length === 0) return;
-
-  for (const id of due.notificationIds) {
-    try {
-      await Notifications.cancelScheduledNotificationAsync(id);
-    } catch (e) {
-      console.log('Error canceling notification:', e);
-    }
-  }
-
-  // Clear notification IDs in Firestore
-  if (due.id) {
-    const dueRef = doc(db, 'dues', due.id);
-    await updateDoc(dueRef, { notificationIds: [] });
-  }
+export const rescheduleReminders = async (oldDue, newDue) => {
+  await cancelReminders(oldDue, { persist: false });
+  return scheduleReminders({ ...newDue, notificationIds: [] });
 };
 
-// Get FCM token for backup push notifications
+export const cancelAllScheduledNotifications = async () => {
+  if (isWeb || !Notifications) return;
+  await Notifications.cancelAllScheduledNotificationsAsync();
+};
+
 export const getFCMToken = async () => {
   if (isWeb || !Notifications) return null;
-
   try {
     const token = await Notifications.getDevicePushTokenAsync();
     return token.data;
-  } catch (e) {
-    console.log('Error getting FCM token:', e);
+  } catch (error) {
+    console.log('Error getting device push token:', error);
     return null;
   }
 };
 
-// Handle incoming notifications when app is foregrounded
 export const setupNotificationHandler = (navigationRef) => {
   if (isWeb || !Notifications) return null;
 
-  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data;
-    if (data?.dueId && navigationRef?.current) {
-      navigationRef.current.navigate('Detail', { dueId: data.dueId });
-    }
+  const navigateToDue = (dueId) => {
+    const nav = navigationRef?.current;
+    if (!dueId || !nav?.isReady?.()) return;
+    nav.navigate('Detail', { dueId });
+  };
+
+  Notifications.getLastNotificationResponseAsync().then((response) => {
+    const dueId = response?.notification?.request?.content?.data?.dueId;
+    if (dueId) setTimeout(() => navigateToDue(dueId), 350);
   });
 
-  return subscription;
-};
-
-const formatAmount = (amount) => {
-  if (!amount && amount !== 0) return '0';
-  return Number(amount).toLocaleString('en-IN');
+  return Notifications.addNotificationResponseReceivedListener((response) => {
+    const dueId = response?.notification?.request?.content?.data?.dueId;
+    navigateToDue(dueId);
+  });
 };

@@ -88,7 +88,7 @@ const AppNavigator = ({ navigationRef }) => {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} key={user ? 'authenticated' : 'guest'}>
       {user ? <MainNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );

@@ -14,16 +14,15 @@ import DueRow from '../components/DueRow';
 import { useDues } from '../hooks/useDues';
 import { toggleDueStatus } from '../services/firestoreService';
 import { scheduleReminders, cancelReminders } from '../services/notificationService';
-import { signOutUser } from '../services/authService';
 
 const HomeScreen = ({ navigation }) => {
-  const { dues, loading, error, refresh } = useDues();
+  const { dues, loading, refreshing, error, refresh } = useDues();
 
   // Refresh when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [])
+    }, [refresh])
   );
 
   const handleToggle = async (due) => {
@@ -59,13 +58,6 @@ const HomeScreen = ({ navigation }) => {
       </Text>
     </View>
   );
-
-  const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: () => signOutUser() },
-    ]);
-  };
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
@@ -109,11 +101,12 @@ const HomeScreen = ({ navigation }) => {
             onToggle={() => handleToggle(item)}
           />
         )}
+        ListHeaderComponent={error ? <Text style={styles.errorBanner}>{error}</Text> : null}
         ListEmptyComponent={renderEmptyState}
         contentContainerStyle={dues.length === 0 ? styles.emptyListContainer : styles.listContainer}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={refreshing}
             onRefresh={refresh}
             tintColor="#4CAF50"
             colors={['#4CAF50']}
@@ -168,6 +161,17 @@ const styles = StyleSheet.create({
   },
   headerIcon: {
     marginRight: 16,
+  },
+  errorBanner: {
+    color: '#FCA5A5',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderWidth: 1,
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    padding: 10,
+    fontSize: 13,
   },
 });
 

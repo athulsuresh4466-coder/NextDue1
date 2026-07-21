@@ -8,12 +8,12 @@ import {
   signInWithPopup,
   updateProfile,
 } from 'firebase/auth';
-import { auth } from '../config/firebase';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { auth, db } from '../config/firebase';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -29,29 +29,19 @@ const discovery = {
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 };
 
-export const onAuthChanged = (callback) => {
-  return onAuthStateChanged(auth, callback);
-};
+export const onAuthChanged = (callback) => onAuthStateChanged(auth, callback);
 
 export const signInWithEmail = async (email, password) => {
-  try {
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    await createOrUpdateUserProfile(result.user);
-    return result.user;
-  } catch (error) {
-    throw error;
-  }
+  const result = await signInWithEmailAndPassword(auth, email.trim(), password);
+  await createOrUpdateUserProfile(result.user);
+  return result.user;
 };
 
 export const signUpWithEmail = async (email, password, name) => {
-  try {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(result.user, { displayName: name });
-    await createOrUpdateUserProfile(result.user, { name });
-    return result.user;
-  } catch (error) {
-    throw error;
-  }
+  const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  await updateProfile(result.user, { displayName: name.trim() });
+  await createOrUpdateUserProfile(result.user, { name: name.trim() });
+  return result.user;
 };
 
 export const signInWithGoogle = async () => {
@@ -70,29 +60,19 @@ export const signInWithGoogle = async () => {
       throw new Error('Google Sign-In is not configured for native yet. Please use email sign-in or add a valid native Google client ID.');
     }
 
-    const redirectUri = AuthSession.makeRedirectUri({
-      scheme: 'nextdue',
-    });
-
+    const redirectUri = AuthSession.makeRedirectUri({ scheme: 'nextdue' });
     const request = new AuthSession.AuthRequest({
       clientId: CLIENT_ID,
       scopes: ['openid', 'profile', 'email'],
       redirectUri,
       responseType: AuthSession.ResponseType.Token,
-      extraParams: {
-        include_granted_scopes: 'true',
-      },
+      extraParams: { include_granted_scopes: 'true' },
     });
 
     const result = await request.promptAsync(discovery);
-
-    if (result.type !== 'success') {
-      throw new Error('Google Sign-In was cancelled');
-    }
+    if (result.type !== 'success') throw new Error('Google Sign-In was cancelled');
 
     const { id_token, access_token } = result.params;
-
-    // Create Firebase credential with the Google ID token
     const credential = GoogleAuthProvider.credential(id_token, access_token);
     const userCredential = await signInWithCredential(auth, credential);
     await createOrUpdateUserProfile(userCredential.user);
@@ -103,8 +83,23 @@ export const signInWithGoogle = async () => {
   }
 };
 
+export const clearCachedUserData = async () => {
+  await AsyncStorage.multiRemove([
+    'nextdue:user',
+    'nextdue:dues',
+    'nextdue:profile',
+    'nextdue:notification-permission-requested',
+  ]);
+};
+
 export const signOutUser = async () => {
-  await signOut(auth);
+  try {
+    await clearCachedUserData();
+    await signOut(auth);
+  } catch (error) {
+    console.error('Sign out error:', error);
+    throw error;
+  }
 };
 
 const createOrUpdateUserProfile = async (user, extraData = {}) => {
@@ -121,12 +116,8 @@ const createOrUpdateUserProfile = async (user, extraData = {}) => {
       updatedAt: serverTimestamp(),
     });
   } else {
-    await setDoc(userRef, {
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
+    await setDoc(userRef, { updatedAt: serverTimestamp() }, { merge: true });
   }
 };
 
-export const getCurrentUser = () => {
-  return auth.currentUser;
-};
+export const getCurrentUser = () => auth.currentUser;

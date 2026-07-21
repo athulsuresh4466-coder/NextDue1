@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getDueById, deleteDue, toggleDueStatus, addDue } from '../services/firestoreService';
@@ -19,6 +20,7 @@ const DetailScreen = ({ route, navigation }) => {
   const [due, setDue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadDue();
@@ -35,14 +37,18 @@ const DetailScreen = ({ route, navigation }) => {
             >
               <Ionicons name="pencil-outline" size={22} color="#4CAF50" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleDelete} style={styles.headerButton}>
-              <Ionicons name="trash-outline" size={22} color="#EF4444" />
+            <TouchableOpacity onPress={handleDelete} style={styles.headerButton} disabled={deleting}>
+              {deleting ? (
+                <ActivityIndicator size="small" color="#EF4444" />
+              ) : (
+                <Ionicons name="trash-outline" size={22} color="#EF4444" />
+              )}
             </TouchableOpacity>
           </View>
         ),
       });
     }
-  }, [due, navigation]);
+  }, [due, navigation, deleting]);
 
   const loadDue = async () => {
     try {
@@ -56,32 +62,43 @@ const DetailScreen = ({ route, navigation }) => {
     }
   };
 
+  const doDelete = async () => {
+    setDeleting(true);
+    try {
+      if (due.notificationIds?.length > 0) {
+        await cancelReminders(due, { persist: false });
+      }
+      if (due.receiptUrl) {
+        await deleteReceipt(due.receiptUrl);
+      }
+      await deleteDue(dueId);
+      Alert.alert('Deleted', 'Due deleted successfully.');
+      navigation.goBack();
+    } catch (err) {
+      console.error('Delete due error:', err);
+      Alert.alert('Error', err.message || 'Failed to delete due');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleDelete = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to delete this due?')) {
+        doDelete();
+      }
+      return;
+    }
+
     Alert.alert(
-      'Delete this due?',
-      "This can't be undone",
+      'Delete Due',
+      'Are you sure you want to delete this due?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              // Cancel notifications first
-              if (due.notificationIds?.length > 0) {
-                await cancelReminders({ notificationIds: due.notificationIds });
-              }
-              // Delete receipt if exists
-              if (due.receiptUrl) {
-                await deleteReceipt(due.receiptUrl);
-              }
-              // Delete from Firestore
-              await deleteDue(dueId);
-              navigation.goBack();
-            } catch (err) {
-              Alert.alert('Error', 'Failed to delete due');
-            }
-          },
+          onPress: doDelete,
         },
       ]
     );
@@ -90,7 +107,7 @@ const DetailScreen = ({ route, navigation }) => {
   const handleToggleComplete = async () => {
     setToggling(true);
     try {
-      const result = await toggleDueStatus(due.id, due.isCompleted);
+      await toggleDueStatus(due.id, due.isCompleted);
 
       if (!due.isCompleted) {
         // Marking complete
@@ -123,13 +140,13 @@ const DetailScreen = ({ route, navigation }) => {
 
           // Schedule reminders for the new due
           if (due.reminders?.length > 0) {
-            await scheduleReminders({ ...newDueData, id: newDue.id });
+            await scheduleReminders({ ...newDue, ...newDueData, id: newDue.id });
           }
         }
       } else {
         // Un-marking complete → reschedule reminders
         if (due.reminders?.length > 0) {
-          await scheduleReminders({ ...due, id: due.id });
+          await scheduleReminders({ ...due, id: due.id, notificationIds: due.notificationIds || [] });
         }
       }
 

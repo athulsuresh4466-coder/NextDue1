@@ -3,8 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 const REMINDER_OPTIONS = [
+  { value: 7, label: 'Remind 7 days before' },
   { value: 3, label: 'Remind 3 days before' },
   { value: 1, label: 'Remind 1 day before' },
+  { value: 0, label: 'Remind on due date' },
 ];
 
 const ReminderCheckboxes = ({ selectedValues, onSelectionChange }) => {
