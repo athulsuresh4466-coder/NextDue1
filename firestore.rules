@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Deny all access if not authenticated
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users collection: only accessible by the matching uid
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow user creation (sign up)
+      allow create: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Dues collection: only accessible where userId matches auth uid
+    match /dues/{dueId} {
+      allow read, update, delete: if request.auth != null 
+        && resource.data.userId == request.auth.uid;
+      
+      allow create: if request.auth != null 
+        && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "NextDue",
+    "slug": "nextdue",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f1621"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.athul.nextdue"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f1621"
+      },
+      "package": "com.athul.nextdue",
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "webpack"
+    },
+    "plugins": [
+      "expo-dev-client",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff"
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "nextdue-app"
+      },
+      "firebase": {
+        "apiKey": "AIzaSyAF0Dn1pRA3oiJK1CBY-uL4xROt-IYCB24",
+        "authDomain": "nextdues.firebaseapp.com",
+        "projectId": "nextdues",
+        "storageBucket": "nextdues.firebasestorage.app",
+        "messagingSenderId": "586749989494",
+        "appId": "1:586749989494:web:5902193842090139810557",
+        "measurementId": "G-DMWLWW6KRK"
+      }
+    }
+  }
+}
